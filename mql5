@@ -1,0 +1,168 @@
+
+//+------------------------------------------------------------------+
+//|                                         Magical Scalper EA.mq5   |
+//|                             Copyright © 2021, Forex Robot Easy Team |
+//|                                             https://forexroboteasy.com |
+//+------------------------------------------------------------------+
+
+// Define input parameters
+input double LotSize = 0.01;             // Lot size for trading
+input double TakeProfit = 100;           // Take profit level in points
+input double StopLoss = 50;              // Stop loss level in points
+input int MaxOrders = 10;                // Maximum number of open orders
+input int GridStep = 20;                 // Grid step in points
+input bool EnableTrailingStop = true;    // Enable trailing stop
+input int TrailingStop = 30;             // Trailing stop level in points
+
+// Define global variables
+bool IsFirstTick = true;                 // Flag to identify the first tick
+int TotalOrders = 0;                     // Total number of open orders
+double LastOrderPrice = 0;               // Last order price
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    // Set magic number for identification
+    int magicNumber = 123456;
+
+    // Set up chart for multiple currency pairs
+    ChartSetSymbolPeriod(0, Symbol(), PERIOD_CURRENT);
+
+    // Enable trading for all necessary symbols
+    for (int i = 0; i < SymbolsTotal(false); i++)
+    {
+        SymbolSelect(SymbolName(i), true);
+    }
+
+    // Set up necessary trading functions
+    for (int i = 0; i < SymbolsTotal(true); i++)
+    {
+        SymbolInfoTick(SymbolName(i));
+    }
+
+    return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+    // Check if it's the first tick
+    if (IsFirstTick)
+    {
+        // Initialize the grid system
+        InitializeGrid();
+        IsFirstTick = false;
+    }
+
+    // Check for new trades
+    if (TotalOrders < MaxOrders)
+    {
+        // Place new trades
+        PlaceTrades();
+    }
+
+    // Check for trailing stop
+    if (EnableTrailingStop)
+    {
+        // Apply trailing stop to open trades
+        ApplyTrailingStop();
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Initialize the grid system                                        |
+//+------------------------------------------------------------------+
+void InitializeGrid()
+{
+    // Calculate grid levels
+    double minPrice = SymbolInfoDouble(Symbol(), SYMBOL_MIN_PRICE);
+    double maxPrice = SymbolInfoDouble(Symbol(), SYMBOL_MAX_PRICE);
+    double gridLevel = (maxPrice - minPrice) / MaxOrders;
+
+    // Place initial trades at grid levels
+    for (int i = 0; i < MaxOrders; i++)
+    {
+        double price = minPrice + i * gridLevel;
+
+        if (Buy(price))
+            TotalOrders++;
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Place new trades at grid levels                                   |
+//+------------------------------------------------------------------+
+void PlaceTrades()
+{
+    double currentPrice = SymbolInfoDouble(Symbol(), SYMBOL_LAST);
+
+    // Check if price has crossed a grid level
+    if (currentPrice > LastOrderPrice + GridStep)
+    {
+        if (Buy(currentPrice))
+            TotalOrders++;
+    }
+    else if (currentPrice < LastOrderPrice - GridStep)
+    {
+        if (Sell(currentPrice))
+            TotalOrders++;
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Buy function                                                     |
+//+------------------------------------------------------------------+
+bool Buy(double price)
+{
+    // Place a buy order at specified price
+    if (OrderSend(Symbol(), OP_BUY, LotSize, price, 0, price - StopLoss * Point, price + TakeProfit * Point, 'Magical Scalper EA', magicNumber, 0, clrGreen))
+    {
+        LastOrderPrice = price;
+        return true;
+    }
+
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Sell function                                                    |
+//+------------------------------------------------------------------+
+bool Sell(double price)
+{
+    // Place a sell order at specified price
+    if (OrderSend(Symbol(), OP_SELL, LotSize, price, 0, price + StopLoss * Point, price - TakeProfit * Point, 'Magical Scalper EA', magicNumber, 0, clrRed))
+    {
+        LastOrderPrice = price;
+        return true;
+    }
+
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Apply trailing stop to open trades                                |
+//+------------------------------------------------------------------+
+void ApplyTrailingStop()
+{
+    for (int i = 0; i < OrdersTotal(); i++)
+    {
+        if (OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+        {
+            if (OrderSymbol() == Symbol() && OrderMagicNumber() == magicNumber)
+            {
+                // Modify stop loss level based on trailing stop
+                double currentStopLoss = OrderStopLoss();
+                double newStopLoss = NormalizeDouble(LastOrderPrice + TrailingStop * Point, Digits);
+
+                if (newStopLoss > currentStopLoss)
+                {
+                    OrderModify(OrderTicket(), OrderOpenPrice(), newStopLoss, OrderTakeProfit(), 0, clrBlue);
+                }
+            }
+        }
+    }
+}
